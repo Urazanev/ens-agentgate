@@ -1,6 +1,31 @@
+# dependencies
 node_modules
+
+# build output
 dist
+
+# environment files
 .env
 .env.local
+.env.*.local
+
+# logs
 *.log
+logs
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# coverage
+coverage
+
+# temp files
+*.tmp
+*.swp
+*~
+
+# IDE
+.idea
+.vscode
+*.code-workspace

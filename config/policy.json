@@ -1,0 +1,12 @@
+{
+  "agents": {
+    "myagent1.eth": {
+      "status": "active",
+      "allowedTools": [
+        "hello",
+        "private-signal"
+      ],
+      "label": "Main demo agent"
+    }
+  }
+}

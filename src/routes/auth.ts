@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { addEvent } from "../services/eventLog.js";
 import { z } from "zod";
 import { isAddress, type Address, type Hex } from "viem";
 import { env } from "../utils/env.js";
@@ -142,6 +143,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!addressesEqual(recovered, providedAddress)) {
+      addEvent({
+        type: "auth_failed",
+        ensName: normalized,
+        address: providedAddress,
+        result: "denied",
+        reason: "invalid_signature",
+      });
       return reply.code(401).send({
         ok: false,
         error: "invalid_signature",
@@ -170,6 +178,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     if (!addressesEqual(resolved, providedAddress)) {
+      addEvent({
+        type: "auth_failed",
+        ensName: normalized,
+        address: providedAddress,
+        result: "denied",
+        reason: "ens_address_mismatch",
+      });
       return reply.code(403).send({
         ok: false,
         error: "ens_address_mismatch",
@@ -185,6 +200,14 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       ensName: normalized,
       address: providedAddress,
       nonce: challenge.nonce,
+    });
+
+    addEvent({
+      type: "auth_success",
+      ensName: normalized,
+      address: providedAddress,
+      result: "allowed",
+      reason: "ens_verified",
     });
 
     return reply.send({
