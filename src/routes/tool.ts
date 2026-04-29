@@ -6,7 +6,7 @@ import { addEvent } from "../services/eventLog.js";
 function policyGate(toolId: string) {
   return async function (req: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply): Promise<void> {
     const s = req.session!;
-    const result = checkToolAccess(s.ensName, toolId);
+    const result = await checkToolAccess(s.ensName, toolId);
 
     if (!result.allowed) {
       addEvent({

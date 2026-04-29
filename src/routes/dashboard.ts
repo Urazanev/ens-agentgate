@@ -19,7 +19,7 @@ export async function registerDashboardRoutes(
 ): Promise<void> {
   // ── GET /dashboard ──────────────────────────────────────────────────────
   app.get("/dashboard", async (_req, reply) => {
-    const policy = getPolicy();
+    const policy = await getPolicy();
     const events = getRecentEvents(20);
     const html = renderDashboard(policy.agents, events);
     return reply.type("text/html; charset=utf-8").send(html);
@@ -51,7 +51,7 @@ export async function registerDashboardRoutes(
       ...(label ? { label } : {}),
     };
 
-    addOrUpdateAgent(ensName, config);
+    await addOrUpdateAgent(ensName, config);
     addEvent({
       type: "agent_added",
       ensName,
@@ -70,7 +70,7 @@ export async function registerDashboardRoutes(
       return reply.redirect("/dashboard");
     }
 
-    removeAgent(ensName);
+    await removeAgent(ensName);
     addEvent({
       type: "agent_removed",
       ensName,

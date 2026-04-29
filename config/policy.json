@@ -5,8 +5,7 @@
       "allowedTools": [
         "hello",
         "private-signal"
-      ],
-      "label": "Main demo agent"
+      ]
     }
   }
 }

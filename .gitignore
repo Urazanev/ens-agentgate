@@ -29,3 +29,5 @@ coverage
 .idea
 .vscode
 *.code-workspace
+.vercel
+.env*.local

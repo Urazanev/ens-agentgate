@@ -1,4 +1,10 @@
-import "dotenv/config";
+import { config } from "dotenv";
+
+// Load .env first, then .env.local (Vercel integration vars).
+// dotenv won't override already-set vars, so .env.local takes precedence
+// only for vars not in .env. On Vercel, real env vars are injected directly.
+config(); // .env
+config({ path: ".env.local" }); // Vercel integration vars (Upstash, etc.)
 
 function required(name: string, value: string | undefined): string {
   if (!value || value.trim() === "") {
