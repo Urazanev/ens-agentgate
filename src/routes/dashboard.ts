@@ -26,6 +26,12 @@ export async function registerDashboardRoutes(
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
+  // ── GET /dashboard/events (JSON for live polling) ───────────────────────
+  app.get("/dashboard/events", async (_req, reply) => {
+    const events = getRecentEvents(20);
+    return reply.send(events);
+  });
+
   // ── POST /dashboard/agents (add/update) ─────────────────────────────────
   app.post("/dashboard/agents", async (req, reply) => {
     const body = req.body as Record<string, unknown>;
@@ -344,6 +350,13 @@ function renderDashboard(
 	    color: #fff;
 	  }
 	  .btn-primary:hover { background: var(--accent-hover); }
+	  .btn-connected {
+	    background: var(--green-bg);
+	    color: var(--green);
+	    border: 1px solid var(--green);
+	    cursor: default;
+	  }
+	  .btn-connected:hover { background: var(--green-bg); }
 	  .btn-secondary {
 	    background: var(--surface2);
 	    color: var(--text);
@@ -525,7 +538,8 @@ function renderDashboard(
 
 	      <!-- Recent Events -->
 	      <div class="card">
-	        <h2><span class="icon">📊</span> Recent Events</h2>
+	        <h2><span class="icon">📊</span> Recent Events <span style="font-size:11px;color:var(--text-dim);font-weight:400;margin-left:auto;">auto-refresh 5s</span></h2>
+	        <div id="eventsContainer">
 	        ${
 	          events.length === 0
 	            ? `<div class="empty-state">No events recorded yet. Authenticate an agent to see activity.</div>`
@@ -536,6 +550,7 @@ function renderDashboard(
 	          <tbody>${eventRows}</tbody>
 	        </table>`
 	        }
+	        </div>
 	      </div>
 	    </div>
 
@@ -633,6 +648,19 @@ function renderDashboard(
 	      callToolsBtn.disabled = true;
 	    }
 
+	    /* ── wallet button state helper ──────────────────── */
+	    function updateConnectButton(connected) {
+	      if (connected) {
+	        connectBtn.textContent = "Connected ✓";
+	        connectBtn.classList.remove("btn-primary");
+	        connectBtn.classList.add("btn-connected");
+	      } else {
+	        connectBtn.textContent = "Connect Wallet";
+	        connectBtn.classList.remove("btn-connected");
+	        connectBtn.classList.add("btn-primary");
+	      }
+	    }
+
 	    async function requestJson(path, options) {
 	      var response = await fetch(path, options || {});
 	      var text = await response.text();
@@ -668,6 +696,7 @@ function renderDashboard(
 	      address = nextAddress || "";
 	      addressEl.textContent = shortAddress(address);
 	      signInBtn.disabled = !address;
+	      updateConnectButton(!!address);
 	      resetSessionState("not signed in");
 	      if (!address) return;
 	      log(source || "Wallet connected.", { address: address });
@@ -762,6 +791,65 @@ function renderDashboard(
 	        });
 	      }
 	    }
+
+	    /* ── live events polling ─────────────────────────── */
+	    function escapeHtml(s) {
+	      var div = document.createElement("div");
+	      div.appendChild(document.createTextNode(s));
+	      return div.innerHTML;
+	    }
+
+	    function badgeClass(result) {
+	      if (result === "allowed") return "badge-active";
+	      if (result === "denied") return "badge-suspended";
+	      return "badge-info";
+	    }
+
+	    function rowClass(result) {
+	      if (result === "allowed") return "row-allowed";
+	      if (result === "denied") return "row-denied";
+	      return "";
+	    }
+
+	    function renderEventsTable(events) {
+	      if (!events || events.length === 0) {
+	        return '<div class="empty-state">No events recorded yet. Authenticate an agent to see activity.</div>';
+	      }
+	      var html = '<table><thead><tr>';
+	      html += '<th>Time</th><th>Type</th><th>ENS Name</th><th>Tool</th><th>Result</th><th>Reason</th>';
+	      html += '</tr></thead><tbody>';
+	      for (var i = 0; i < events.length; i++) {
+	        var e = events[i];
+	        html += '<tr class="' + rowClass(e.result) + '">';
+	        html += '<td>' + escapeHtml((e.timestamp || "").replace("T", " ").slice(0, 19)) + '</td>';
+	        html += '<td>' + escapeHtml(e.type || "") + '</td>';
+	        html += '<td>' + escapeHtml(e.ensName || "\u2014") + '</td>';
+	        html += '<td>' + escapeHtml(e.tool || "\u2014") + '</td>';
+	        html += '<td><span class="badge ' + badgeClass(e.result) + '">' + escapeHtml(e.result || "") + '</span></td>';
+	        html += '<td>' + escapeHtml(e.reason || "") + '</td>';
+	        html += '</tr>';
+	      }
+	      html += '</tbody></table>';
+	      return html;
+	    }
+
+	    var eventsContainer = document.getElementById("eventsContainer");
+	    var lastEventsJson = "";
+
+	    function pollEvents() {
+	      fetch("/dashboard/events")
+	        .then(function (res) { return res.json(); })
+	        .then(function (events) {
+	          var json = JSON.stringify(events);
+	          if (json !== lastEventsJson) {
+	            lastEventsJson = json;
+	            eventsContainer.innerHTML = renderEventsTable(events);
+	          }
+	        })
+	        .catch(function () { /* silent */ });
+	    }
+
+	    setInterval(pollEvents, 5000);
 	  })();
 	</script>
 	</body>

@@ -6,13 +6,6 @@
         "hello",
         "private-signal"
       ]
-    },
-    "myagent1.eth": {
-      "status": "active",
-      "allowedTools": [
-        "hello",
-        "private-signal"
-      ]
     }
   }
 }
