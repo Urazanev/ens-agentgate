@@ -32,3 +32,9 @@ export function getSession(token: string): Session | undefined {
   }
   return s;
 }
+
+export function clearSessions(): number {
+  const count = store.size;
+  store.clear();
+  return count;
+}

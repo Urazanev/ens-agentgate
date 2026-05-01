@@ -83,3 +83,20 @@ export async function resolveEnsAddress(name: string): Promise<Address | null> {
 export function addressesEqual(a: Address, b: Address): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
+
+export async function resolveEnsName(address: Address): Promise<string | null> {
+  const client = getEnsClient();
+  try {
+    return await client.getEnsName({
+      address,
+      ...(env.ensUniversalResolverAddress
+        ? { universalResolverAddress: env.ensUniversalResolverAddress as Address }
+        : {}),
+    });
+  } catch (err) {
+    throw new EnsResolutionError(
+      `Reverse ENS resolution failed for ${address}: ${(err as Error).message}`,
+      err,
+    );
+  }
+}

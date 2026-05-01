@@ -18,6 +18,7 @@ import {
   addressesEqual,
   normalizeEnsName,
   resolveEnsAddress,
+  resolveEnsName,
 } from "../services/ensService.js";
 import { recoverSigner } from "../services/signatureService.js";
 import { requireSession } from "../middleware/requireSession.js";
@@ -226,6 +227,56 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       ensName: s.ensName,
       address: s.address,
       expiresAt: isoFromMs(s.expiresAt),
+    });
+  });
+
+  app.get("/auth/reverse-ens", async (req, reply) => {
+    const query = req.query as Record<string, unknown>;
+    const address = String(query.address ?? "");
+    if (!isAddress(address)) {
+      return reply.code(400).send({
+        ok: false,
+        error: "invalid_input",
+        reason: "address must be a 0x-prefixed EVM address",
+      });
+    }
+
+    let name: string | null;
+    try {
+      name = await resolveEnsName(address as Address);
+    } catch (err) {
+      const e = err as EnsResolutionError;
+      return reply.code(502).send({
+        ok: false,
+        error: "ens_reverse_resolution_failed",
+        details: e.message,
+      });
+    }
+
+    if (!name) {
+      return reply.send({ ok: true, address, ensName: null, forwardMatch: false });
+    }
+
+    const normalized = normalizeEnsName(name);
+    let resolved: Address | null;
+    try {
+      resolved = await resolveEnsAddress(normalized);
+    } catch (err) {
+      const e = err as EnsResolutionError;
+      return reply.code(502).send({
+        ok: false,
+        error: "ens_forward_resolution_failed",
+        details: e.message,
+        ensName: normalized,
+      });
+    }
+
+    return reply.send({
+      ok: true,
+      address,
+      ensName: normalized,
+      resolved,
+      forwardMatch: Boolean(resolved && addressesEqual(resolved, address as Address)),
     });
   });
 }
