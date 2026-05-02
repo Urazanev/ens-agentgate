@@ -32,7 +32,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get("/health", async () => ({
     ok: true,
-    service: "tool-gate",
+    service: "agent-gate",
     agentChainId: env.agentChainId,
     ensChainId: env.ensChainId,
   }));

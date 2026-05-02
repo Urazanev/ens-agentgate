@@ -1,6 +1,6 @@
 {
   "agents": {
-    "test.eth": {
+    "vitalik.eth": {
       "status": "active",
       "allowedTools": [
         "hello",

@@ -5,7 +5,7 @@ import { logger } from "./utils/logger.js";
 async function main(): Promise<void> {
   const app = await buildApp();
   await app.listen({ port: env.port, host: "0.0.0.0" });
-  logger.info("tool-gate.listening", {
+  logger.info("agent-gate.listening", {
     port: env.port,
     appUri: env.appUri,
     agentChainId: env.agentChainId,
@@ -15,6 +15,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error("tool-gate.fatal", { err: (err as Error).message });
+  logger.error("agent-gate.fatal", { err: (err as Error).message });
   process.exit(1);
 });

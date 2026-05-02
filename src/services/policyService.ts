@@ -28,7 +28,7 @@ export interface ToolAccessResult {
 
 // ─── storage backend ────────────────────────────────────────────────────────
 
-const REDIS_KEY = "tool-gate:policy";
+const REDIS_KEY = "agent-gate:policy";
 
 const redisUrl =
   process.env.UPSTASH_REDIS_REST_URL ??

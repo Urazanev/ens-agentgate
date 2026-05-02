@@ -2,7 +2,7 @@ import "dotenv/config";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 
-const TOOL_GATE_URL = process.env.TOOL_GATE_URL ?? "http://localhost:3001";
+const AGENT_GATE_URL = process.env.AGENT_GATE_URL ?? "http://localhost:3001";
 const PRIVATE_KEY = (process.env.DEMO_PRIVATE_KEY ?? process.env.PRIVATE_KEY) as Hex | undefined;
 const ENS_NAME = process.env.DEMO_ENS_NAME;
 
@@ -12,7 +12,7 @@ function die(msg: string): never {
 }
 
 async function http<T>(path: string, init: RequestInit): Promise<{ status: number; body: T }> {
-  const res = await fetch(`${TOOL_GATE_URL}${path}`, {
+  const res = await fetch(`${AGENT_GATE_URL}${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...(init.headers ?? {}) },
   });
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   const account = privateKeyToAccount(PRIVATE_KEY);
   console.log("[demo] using ENS:", ENS_NAME);
   console.log("[demo] signer address:", account.address);
-  console.log("[demo] tool-gate at:", TOOL_GATE_URL);
+  console.log("[demo] tool-gate at:", AGENT_GATE_URL);
 
   // ── Step 1: Challenge ──────────────────────────────────────────────────
   console.log("\n[demo] step 1: POST /auth/challenge");
@@ -112,7 +112,7 @@ async function main(): Promise<void> {
 
   // ── Step 7: No-token test ──────────────────────────────────────────────
   console.log("\n[demo] step 7: GET /tool/hello WITHOUT token (must 401)");
-  const res = await fetch(`${TOOL_GATE_URL}/tool/hello`);
+  const res = await fetch(`${AGENT_GATE_URL}/tool/hello`);
   console.log("[demo] no-auth status:", res.status, await res.json());
 
   console.log("\n[demo] happy path complete.");

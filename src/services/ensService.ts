@@ -13,11 +13,13 @@ import { logger } from "../utils/logger.js";
 /**
  * ENS resolution client, intentionally independent from any agent execution chain.
  *
- * ENSv2-ready: resolution goes through viem's `getEnsAddress`, which calls the
- * on-chain Universal Resolver (ENSIP-10) and supports wildcard / CCIP-Read /
- * offchain resolvers. Names are normalized via `viem/ens` `normalize`
- * (UTS-46 / @adraffy/ens-normalize). The Universal Resolver address can be
- * overridden per deployment.
+ * For the MVP we use standard ENS resolution through viem:
+ * - normalize ENS names with `viem/ens`
+ * - resolve names with `getEnsAddress`
+ * - optionally resolve reverse names with `getEnsName`
+ *
+ * The ENS RPC / chain is configured separately from the agent chain so the
+ * service can verify ENS identity without assuming where the agent executes.
  */
 
 function pickChain(chainId: number): Chain {
