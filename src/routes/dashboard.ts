@@ -3,6 +3,8 @@ import {
   getPolicy,
   addOrUpdateAgent,
   removeAgent,
+  getAgentKillSwitch,
+  clearEnsCaches,
   type AgentConfig,
 } from "../services/policyService.js";
 import { addEvent } from "../services/eventLog.js";
@@ -21,8 +23,22 @@ export async function registerDashboardRoutes(
   // ── GET /dashboard ──────────────────────────────────────────────────────
   app.get("/dashboard", async (_req, reply) => {
     const policy = await getPolicy();
+    // Resolve each entry's ENS kill-switch state for display. Fleet entries
+    // ("*.root.eth") check the root name: a revoke there pauses the whole fleet.
+    const views = await Promise.all(
+      Object.entries(policy.agents).map(async ([name, cfg]) => {
+        const isFleet = name.startsWith("*.");
+        const ksName = isFleet ? name.slice(2) : name;
+        return {
+          name,
+          cfg,
+          isFleet,
+          revoked: (await getAgentKillSwitch(ksName)).revoked,
+        };
+      }),
+    );
     const events = getRecentEvents(20);
-    const html = renderDashboard(policy.agents, events);
+    const html = renderDashboard(views, events);
     return reply.type("text/html; charset=utf-8").send(html);
   });
 
@@ -30,6 +46,17 @@ export async function registerDashboardRoutes(
   app.get("/dashboard/events", async (_req, reply) => {
     const events = getRecentEvents(20);
     return reply.send(events);
+  });
+
+  // ── POST /dashboard/refresh-ens (drop on-chain read caches) ─────────────
+  app.post("/dashboard/refresh-ens", async (_req, reply) => {
+    clearEnsCaches();
+    addEvent({
+      type: "ens_synced",
+      result: "info",
+      reason: "ENS caches cleared; liveness and kill switches re-read on next check",
+    });
+    return reply.redirect("/dashboard");
   });
 
   // ── POST /dashboard/agents (add/update) ─────────────────────────────────
@@ -101,19 +128,31 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+interface AgentView {
+  name: string;
+  cfg: AgentConfig;
+  isFleet: boolean;
+  revoked: boolean;
+}
+
 function renderDashboard(
-  agents: Record<string, AgentConfig>,
+  views: AgentView[],
   events: ReturnType<typeof getRecentEvents>,
 ): string {
   // ── agent rows ──────────────────────────────────────────────────────────
-  const agentRows = Object.entries(agents)
+  const agentRows = views
     .map(
-      ([name, cfg]) => `
+      ({ name, cfg, isFleet, revoked }) => `
       <tr>
-        <td><code>${esc(name)}</code></td>
+        <td><code>${esc(name)}</code>${isFleet ? ` <span class="badge badge-info" title="Fleet entry: matches every subname under this root. Workers carry their own keys; the root owner hires/fires them on-chain.">fleet</span>` : ""}</td>
         <td>${esc(cfg.label ?? "")}</td>
         <td><span class="badge ${cfg.status === "active" ? "badge-active" : "badge-suspended"}">${esc(cfg.status)}</span></td>
         <td>${cfg.allowedTools.map((t) => `<code>${esc(t)}</code>`).join(", ") || "<em>none</em>"}</td>
+        <td>${
+          revoked
+            ? `<span class="badge badge-suspended" title="Owner set agentgate.revoked on ${esc(isFleet ? name.slice(2) : name)}">${isFleet ? "⛔ FLEET PAUSED" : "⛔ REVOKED (ENS)"}</span>`
+            : `<span class="badge badge-active" title="No ENS revoke set${isFleet ? " on the fleet root" : ""}">live</span>`
+        }</td>
         <td>
           <form method="post" action="/dashboard/agents/remove" style="display:inline">
             <input type="hidden" name="ensName" value="${esc(name)}" />
@@ -492,13 +531,17 @@ function renderDashboard(
 
 	      <!-- Policy Table -->
 	      <div class="card">
-	        <h2><span class="icon">📋</span> Current Policy</h2>
+	        <h2><span class="icon">📋</span> Current Policy
+	          <form method="post" action="/dashboard/refresh-ens" style="margin-left:auto;display:inline">
+	            <button type="submit" class="btn btn-secondary btn-sm" title="Re-read agentgate.revoked from ENS on next check">↻ Sync from ENS</button>
+	          </form>
+	        </h2>
 	        ${
-	          Object.keys(agents).length === 0
+	          views.length === 0
 	            ? `<div class="empty-state">No agents configured. Add one below.</div>`
 	            : `<table>
 	          <thead><tr>
-	            <th>ENS Name</th><th>Label</th><th>Status</th><th>Allowed Tools</th><th>Actions</th>
+	            <th>ENS Name</th><th>Label</th><th>Status</th><th>Allowed Tools</th><th>Kill switch (ENS)</th><th>Actions</th>
 	          </tr></thead>
 	          <tbody>${agentRows}</tbody>
 	        </table>`
@@ -512,7 +555,7 @@ function renderDashboard(
 	          <div class="form-grid">
 	            <div class="form-group">
 	              <label class="field-label" for="ensName">ENS Name</label>
-	              <input type="text" id="ensName" name="ensName" placeholder="myagent.eth" required />
+	              <input type="text" id="ensName" name="ensName" placeholder="myagent.eth or *.myfleet.eth" required />
 	            </div>
 	            <div class="form-group">
 	              <label class="field-label" for="label">Label</label>
@@ -572,6 +615,7 @@ function renderDashboard(
 
 	        <div class="button-row">
 	          <button type="button" id="connectWalletBtn" class="btn btn-primary">Connect Wallet</button>
+	          <button type="button" id="disconnectBtn" class="btn btn-secondary" style="display:none">Disconnect</button>
 	          <button type="button" id="signInBtn" class="btn btn-secondary" disabled>Sign In</button>
 	          <button type="button" id="callToolsBtn" class="btn btn-secondary" disabled>Call Tools</button>
 	        </div>
@@ -610,6 +654,7 @@ function renderDashboard(
 	            <li>Sign the SIWE challenge in the wallet popup</li>
 	            <li>Call protected tools and watch recent events update after page refresh</li>
 	          </ol>
+	          <p class="hint"><strong>Fleet mode:</strong> add <code>*.myfleet.eth</code> to grant a whole namespace once. Spawn workers with their own keys via <code>npm run fleet -- spawn worker1</code>, fire one on-chain with <code>npm run fleet -- revoke worker1</code> (access dies mid-session), or pause the entire fleet by setting <code>agentgate.revoked=true</code> on the root name.</p>
 	        </div>
 	      </div>
 	    </div>
@@ -621,6 +666,7 @@ function renderDashboard(
 	    var address = "";
 	    var sessionToken = "";
 	    var connectBtn = document.getElementById("connectWalletBtn");
+	    var disconnectBtn = document.getElementById("disconnectBtn");
 	    var signInBtn = document.getElementById("signInBtn");
 	    var callToolsBtn = document.getElementById("callToolsBtn");
 	    var ensInput = document.getElementById("demoEnsName");
@@ -654,10 +700,12 @@ function renderDashboard(
 	        connectBtn.textContent = "Connected ✓";
 	        connectBtn.classList.remove("btn-primary");
 	        connectBtn.classList.add("btn-connected");
+	        disconnectBtn.style.display = "";
 	      } else {
 	        connectBtn.textContent = "Connect Wallet";
 	        connectBtn.classList.remove("btn-connected");
 	        connectBtn.classList.add("btn-primary");
+	        disconnectBtn.style.display = "none";
 	      }
 	    }
 
@@ -688,8 +736,9 @@ function renderDashboard(
 	        log("Reverse ENS found, but forward verification did not match this address.", result);
 	        return;
 	      }
-	      reverseEl.textContent = "not found";
-	      log("No reverse ENS name found for connected wallet.", result);
+	      reverseEl.textContent = "no primary name, type it below";
+	      ensInput.focus();
+	      log("No primary ENS name set for this address (normal). Enter the agent's ENS name manually. Tip: set a primary name in the ENS app to auto-fill this.", result);
 	    }
 
 	    async function setConnectedAccount(nextAddress, source) {
@@ -719,11 +768,44 @@ function renderDashboard(
 	      }
 	    });
 
+	    disconnectBtn.addEventListener("click", async function () {
+	      // Best-effort: ask the wallet to forget this dapp (MetaMask/Rabby support
+	      // wallet_revokePermissions; other wallets ignore it). Then clear local state.
+	      try {
+	        if (window.ethereum && window.ethereum.request) {
+	          await window.ethereum.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+	        }
+	      } catch (err) { /* wallet has no revoke support; the state reset below still applies */ }
+	      address = "";
+	      addressEl.textContent = "not connected";
+	      reverseEl.textContent = "not checked";
+	      ensInput.value = "";
+	      signInBtn.disabled = true;
+	      resetSessionState("not signed in");
+	      updateConnectButton(false);
+	      log("Disconnected. Dashboard state cleared.");
+	    });
+
 	    signInBtn.addEventListener("click", async function () {
 	      try {
 	        var ensName = ensInput.value.trim();
 	        if (!address) throw new Error("Connect a wallet first.");
 	        if (!ensName) throw new Error("Enter an ENS name before signing.");
+
+	        // Pre-check: does this ENS name resolve to the connected wallet? Catch a
+	        // mismatch before asking the wallet to sign, instead of a 403 afterward.
+	        sessionEl.textContent = "checking ENS name...";
+	        var lookup = await requestJson("/auth/resolve-ens?name=" + encodeURIComponent(ensName));
+	        if (!lookup.address) {
+	          sessionEl.textContent = "name has no address record";
+	          log("'" + ensName + "' does not resolve to any address on the configured ENS chain. Nothing to sign.", lookup);
+	          return;
+	        }
+	        if (lookup.address.toLowerCase() !== address.toLowerCase()) {
+	          sessionEl.textContent = "name does not match wallet";
+	          log("'" + ensName + "' resolves to " + lookup.address + ", not your connected wallet (" + address + "). Connect that wallet, or enter a name that points to this one.", lookup);
+	          return;
+	        }
 
 	        sessionEl.textContent = "requesting challenge...";
 	        var challenge = await requestJson("/auth/challenge", {

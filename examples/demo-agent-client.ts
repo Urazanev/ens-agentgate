@@ -1,10 +1,48 @@
 import "dotenv/config";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 
 const AGENT_GATE_URL = process.env.AGENT_GATE_URL ?? "http://localhost:3001";
-const PRIVATE_KEY = (process.env.DEMO_PRIVATE_KEY ?? process.env.PRIVATE_KEY) as Hex | undefined;
-const ENS_NAME = process.env.DEMO_ENS_NAME;
+
+// Default identity comes from env; `--worker <label>` runs as a fleet worker
+// using the key saved by `npm run fleet -- spawn <label>` in .fleet/<label>.json.
+let PRIVATE_KEY = (process.env.DEMO_PRIVATE_KEY ?? process.env.PRIVATE_KEY) as Hex | undefined;
+let ENS_NAME = process.env.DEMO_ENS_NAME;
+
+const workerFlag = process.argv.indexOf("--worker");
+if (workerFlag !== -1) {
+  // Accept "worker2", a stray trailing dot ("worker2."), or a full subname
+  // ("worker2.myagent1.eth") and reduce it to the .fleet/ label.
+  const raw = (process.argv[workerFlag + 1] ?? "").trim();
+  const label = raw.replace(/\.+$/, "").split(".")[0];
+  const dir = resolve(process.cwd(), ".fleet");
+  if (!label) {
+    console.error("[demo] usage: npm run demo -- --worker <label>   (e.g. worker2)");
+    process.exit(1);
+  }
+  const file = resolve(dir, `${label}.json`);
+  if (!existsSync(file)) {
+    const available = existsSync(dir)
+      ? readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""))
+      : [];
+    console.error(
+      `[demo] no worker "${label}" in .fleet/.` +
+        (available.length
+          ? ` Available: ${available.join(", ")}`
+          : " Spawn one first: npm run fleet -- spawn worker1"),
+    );
+    process.exit(1);
+  }
+  const worker = JSON.parse(readFileSync(file, "utf-8")) as {
+    name: string;
+    privateKey: Hex;
+  };
+  PRIVATE_KEY = worker.privateKey;
+  ENS_NAME = worker.name;
+  console.log(`[demo] running as fleet worker: ${ENS_NAME}`);
+}
 
 function die(msg: string): never {
   console.error(`[demo] ${msg}`);

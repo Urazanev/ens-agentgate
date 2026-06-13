@@ -43,6 +43,10 @@ export const env = {
   ),
   ensUniversalResolverAddress: process.env.ENS_UNIVERSAL_RESOLVER_ADDRESS?.trim() || undefined,
 
+  // How long per-call on-chain checks (address liveness, agentgate.revoked)
+  // are cached. Lower = snappier revocation demo, higher = less RPC load.
+  ensRevokeTtlSec: int(optional(process.env.ENS_REVOKE_TTL_SECONDS, "15"), "ENS_REVOKE_TTL_SECONDS"),
+
   challengeTtlSec: int(optional(process.env.CHALLENGE_TTL_SECONDS, "300"), "CHALLENGE_TTL_SECONDS"),
   sessionTtlSec: int(optional(process.env.SESSION_TTL_SECONDS, "1800"), "SESSION_TTL_SECONDS"),
 

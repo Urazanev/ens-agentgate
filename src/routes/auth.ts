@@ -279,4 +279,44 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       forwardMatch: Boolean(resolved && addressesEqual(resolved, address as Address)),
     });
   });
+
+  // Forward resolution by name. Lets the dashboard check, before asking the
+  // wallet to sign, that an ENS name points to the connected address.
+  app.get("/auth/resolve-ens", async (req, reply) => {
+    const query = req.query as Record<string, unknown>;
+    const rawName = String(query.name ?? "");
+    if (rawName.length < 3 || rawName.length > 255) {
+      return reply.code(400).send({
+        ok: false,
+        error: "invalid_input",
+        reason: "name must be between 3 and 255 characters",
+      });
+    }
+
+    let normalized: string;
+    try {
+      normalized = normalizeEnsName(rawName);
+    } catch (err) {
+      return reply.code(400).send({
+        ok: false,
+        error: "invalid_input",
+        reason: "ens_name_normalization_failed",
+        details: (err as Error).message,
+      });
+    }
+
+    let resolved: Address | null;
+    try {
+      resolved = await resolveEnsAddress(normalized);
+    } catch (err) {
+      const e = err as EnsResolutionError;
+      return reply.code(502).send({
+        ok: false,
+        error: "ens_resolution_failed",
+        details: e.message,
+      });
+    }
+
+    return reply.send({ ok: true, name: normalized, address: resolved });
+  });
 }

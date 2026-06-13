@@ -7,7 +7,8 @@ export type EventType =
   | "tool_denied"
   | "policy_updated"
   | "agent_added"
-  | "agent_removed";
+  | "agent_removed"
+  | "ens_synced";
 
 export type EventResult = "allowed" | "denied" | "info";
 

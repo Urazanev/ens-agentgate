@@ -1,11 +1,28 @@
 {
   "agents": {
-    "vitalik.eth": {
+    "*.myagent1.eth": {
       "status": "active",
       "allowedTools": [
         "hello",
         "private-signal"
-      ]
+      ],
+      "label": "Fleet root"
+    },
+    "worker2.myagent1.eth": {
+      "status": "active",
+      "allowedTools": [
+        "hello",
+        "private-signal"
+      ],
+      "label": "Fleet worker"
+    },
+    "myagent1.eth": {
+      "status": "active",
+      "allowedTools": [
+        "hello",
+        "private-signal"
+      ],
+      "label": "Fleet root (owner)"
     }
   }
 }
