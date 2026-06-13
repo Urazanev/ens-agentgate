@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerToolRoutes } from "./routes/tool.js";
 import { registerDashboardRoutes } from "./routes/dashboard.js";
+import { registerWorkerRoutes } from "./routes/worker.js";
 import { env } from "./utils/env.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -40,6 +41,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerAuthRoutes(app);
   await registerToolRoutes(app);
   await registerDashboardRoutes(app);
+  await registerWorkerRoutes(app);
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send({ ok: false, error: "not_found" });

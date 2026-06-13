@@ -7,13 +7,27 @@ import {
   clearEnsCaches,
   type AgentConfig,
 } from "../services/policyService.js";
+import { setAgentRevoked, ownerRevokeAvailable } from "../services/ownerRevoke.js";
 import { addEvent } from "../services/eventLog.js";
 import { getRecentEvents } from "../services/eventLog.js";
 import { clearSessions } from "../services/sessionStore.js";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 // ─── available tools (single source of truth for UI) ────────────────────────
 
 const AVAILABLE_TOOLS = ["hello", "private-signal"];
+const FLEET_DIR = resolve(process.cwd(), ".fleet");
+
+// A policy entry is a "simulatable worker" if a local .fleet/<label>.json exists
+// for its first label (spawned via `npm run fleet`). Those rows get a worker
+// page link + an owner-side on-chain Revoke/Restore button.
+function fleetLabelFor(name: string): string | undefined {
+  if (name.startsWith("*.")) return undefined;
+  const label = name.split(".")[0];
+  if (!label) return undefined;
+  return existsSync(resolve(FLEET_DIR, `${label}.json`)) ? label : undefined;
+}
 
 // ─── routes ─────────────────────────────────────────────────────────────────
 
@@ -34,6 +48,7 @@ export async function registerDashboardRoutes(
           cfg,
           isFleet,
           revoked: (await getAgentKillSwitch(ksName)).revoked,
+          workerLabel: fleetLabelFor(name),
         };
       }),
     );
@@ -56,6 +71,33 @@ export async function registerDashboardRoutes(
       result: "info",
       reason: "ENS caches cleared; liveness and kill switches re-read on next check",
     });
+    return reply.redirect("/dashboard");
+  });
+
+  // ── POST /dashboard/revoke (owner-side, on-chain; demo convenience) ─────
+  // Signs agentgate.revoked on the worker's ENS name with DEMO_PRIVATE_KEY,
+  // mirroring `npm run killswitch`. Waits for the tx, then drops caches so the
+  // dashboard reflects it immediately. The gate is untouched; it only reads.
+  app.post("/dashboard/revoke", async (req, reply) => {
+    const body = req.body as Record<string, unknown>;
+    const ensName = String(body.ensName ?? "").trim();
+    const revoke = String(body.mode ?? "on") === "on";
+    if (!ensName) return reply.redirect("/dashboard");
+    try {
+      const hash = await setAgentRevoked(ensName, revoke);
+      clearEnsCaches();
+      addEvent({
+        type: "ens_synced",
+        result: "info",
+        reason: `owner ${revoke ? "revoked" : "restored"} ${ensName} on-chain (${hash.slice(0, 10)}…)`,
+      });
+    } catch (err) {
+      addEvent({
+        type: "ens_synced",
+        result: "denied",
+        reason: `revoke failed for ${ensName}: ${(err as Error).message}`,
+      });
+    }
     return reply.redirect("/dashboard");
   });
 
@@ -133,16 +175,18 @@ interface AgentView {
   cfg: AgentConfig;
   isFleet: boolean;
   revoked: boolean;
+  workerLabel?: string;
 }
 
 function renderDashboard(
   views: AgentView[],
   events: ReturnType<typeof getRecentEvents>,
 ): string {
+  const revokeAvailable = ownerRevokeAvailable();
   // ── agent rows ──────────────────────────────────────────────────────────
   const agentRows = views
     .map(
-      ({ name, cfg, isFleet, revoked }) => `
+      ({ name, cfg, isFleet, revoked, workerLabel }) => `
       <tr>
         <td><code>${esc(name)}</code>${isFleet ? ` <span class="badge badge-info" title="Fleet entry: matches every subname under this root. Workers carry their own keys; the root owner hires/fires them on-chain.">fleet</span>` : ""}</td>
         <td>${esc(cfg.label ?? "")}</td>
@@ -154,6 +198,16 @@ function renderDashboard(
             : `<span class="badge badge-active" title="No ENS revoke set${isFleet ? " on the fleet root" : ""}">live</span>`
         }</td>
         <td>
+          ${workerLabel ? `<a class="btn btn-secondary btn-sm" href="/worker/${esc(workerLabel)}" target="_blank" rel="noopener">Worker page ↗</a> ` : ""}
+          ${
+            workerLabel && revokeAvailable
+              ? `<form method="post" action="/dashboard/revoke" style="display:inline">
+            <input type="hidden" name="ensName" value="${esc(name)}" />
+            <input type="hidden" name="mode" value="${revoked ? "off" : "on"}" />
+            <button type="submit" class="btn btn-sm ${revoked ? "btn-secondary" : "btn-danger"}" title="Owner-side on-chain ${revoked ? "restore" : "revoke"} (signs agentgate.revoked, ~12s)">${revoked ? "Restore" : "Revoke (owner)"}</button>
+          </form> `
+              : ""
+          }
           <form method="post" action="/dashboard/agents/remove" style="display:inline">
             <input type="hidden" name="ensName" value="${esc(name)}" />
             <button type="submit" class="btn btn-danger btn-sm">Remove</button>
@@ -507,9 +561,24 @@ function renderDashboard(
 	    line-height: 1.5;
 	    margin-top: 8px;
 	  }
+  /* tx waiting overlay */
+  .tx-overlay { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; background: rgba(9,11,16,0.82); }
+  .tx-overlay.show { display: flex; }
+  .tx-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px 32px; text-align: center; max-width: 380px; }
+  .tx-spinner { width: 36px; height: 36px; margin: 0 auto 16px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: tx-spin 0.8s linear infinite; }
+  @keyframes tx-spin { to { transform: rotate(360deg); } }
+  .tx-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .tx-sub { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 </style>
 </head>
 <body>
+<div id="txOverlay" class="tx-overlay">
+  <div class="tx-box">
+    <div class="tx-spinner"></div>
+    <div class="tx-title">Waiting for on-chain confirmation</div>
+    <div class="tx-sub" id="txSub">Signing on Sepolia, this takes ~10-15s</div>
+  </div>
+</div>
 <div class="container">
 
   <!-- Header -->
@@ -932,6 +1001,19 @@ function renderDashboard(
 	    }
 
 	    setInterval(pollEvents, 5000);
+
+	    /* show a waiting overlay while an on-chain revoke/restore confirms */
+	    var txOverlay = document.getElementById("txOverlay");
+	    var txSub = document.getElementById("txSub");
+	    var revokeForms = document.querySelectorAll('form[action="/dashboard/revoke"]');
+	    for (var ri = 0; ri < revokeForms.length; ri++) {
+	      revokeForms[ri].addEventListener("submit", function () {
+	        var modeInput = this.querySelector('input[name="mode"]');
+	        var on = modeInput && modeInput.value === "on";
+	        if (txSub) txSub.textContent = (on ? "Revoking" : "Restoring") + " on Sepolia, waiting for confirmation, this takes ~10-15s";
+	        if (txOverlay) txOverlay.classList.add("show");
+	      });
+	    }
 	  })();
 	</script>
 	</body>
